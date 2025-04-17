@@ -81,7 +81,6 @@ void random_init(simulation& s)
         s.vy[i] = -s.x[i]*1.5;
     }
 
-    // Why is there a return statement here?
     return;
   
     //normalize velocity (using normalization found on some physicis blog)
