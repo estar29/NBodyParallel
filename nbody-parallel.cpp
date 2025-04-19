@@ -282,12 +282,7 @@ int main(int argc, char* argv[]) {
 
     // Calculating how many threads are needed.
     // Allocating ~100 particles per thread.
-    int num_threads = s.nbpart / 100;
-    
-    // Need to call at least one thread!
-    if (num_threads == 0) {
-        num_threads = 1;
-    }
+    int num_threads = 8;
 
     for (size_t step = 0; step< nbstep; step++) 
     {

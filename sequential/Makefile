@@ -10,7 +10,7 @@ solar_seq.out: nbody
 	./nbody "planet" 200 5000000 10000 > solar_seq.out # maybe a minutes
 	date
 
-solar_seq.pdf: solar.out
+solar_seq.pdf: solar_seq.out
 	python plot.py solar_seq.out solar_seq.pdf 1000
 
 # Test case 2
@@ -20,7 +20,7 @@ hundred_seq.out: nbody
 	./nbody 100 1 10000 100 > hundred_seq.out
 	date
 
-hundred_seq.pdf: 100p_seq.out
+hundred_seq.pdf: hundred_seq.out
 	python3 plot.py hundred_seq.out hundred_seq.pdf 1000
 
 # Test case 3
@@ -30,5 +30,5 @@ thousand_seq.out: nbody
 	./nbody 1000 1 10000 100 > thousand_seq.out
 	date
 
-thousand_seq.pdf: 1000p_seq.out
+thousand_seq.pdf: thousand_seq.out
 	python3 plot.py thousand_seq.out thousand_seq.pdf 1000
