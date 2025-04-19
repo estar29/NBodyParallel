@@ -1,33 +1,33 @@
 // Evan Stark - April 13th 2025 - ITCS 4145 001
-// This program provides a parallel programming solution to
-// an N-Body problem: a program that simulates the movement of
-// celestial bodies/particles based on the variables of all bodies
-// in the system.
+// This program provides a parallel solution to
+// the N-Body problem: a program that simulates the movement of
+// celestial bodies/particles based on the variables of all other 
+// bodies in the system.
 
 // SOURCES USED:
 // Starter code provided by Erik Saule.
+// Additional help prevoided by TA Devashish Bhat.
 // https://www.youtube.com/watch?v=29mF-kqNWpE (Video going over the basics of using OpenMP)
 // https://hpc-tutorials.llnl.gov/openmp/ (Written tutorial of using OpenMP)
 // https://www.youtube.com/watch?v=fiMRQSE-Ak8 (Video going over synchronization in OpenMP)
 
-// TODO: Implement local thread storage via private vectors for storage w/o any race conditions.
-
-// Importing all the necessary libraries for input/output 
-// and random number generation. 
+// All necessary libraries
 #include <iostream>
 #include <fstream>
 #include <random>
 #include <cmath>
+#include <vector>
+#include <omp.h>
 
-// Gravity constant.
+// Gravity.
 double G = 6.674*std::pow(10,-11);
 
-// Building a new simulation struct to hold number of particles,
-// and each one's mass, position, velocity, and force.
+// Building a new simulation struct to hold a number of particles,
+// initializing each one's mass, position, velocity, and force.
 struct simulation 
 {
     size_t nbpart;
-  
+    
     std::vector<double> mass;
 
     //position
@@ -45,7 +45,7 @@ struct simulation
     std::vector<double> fy;
     std::vector<double> fz;
 
-    // Constructor for a new simulation object(?)
+    // Constructing a new simulation object.
     simulation(size_t nb):
         nbpart(nb), mass(nb),
         x(nb), y(nb), z(nb),
@@ -54,7 +54,7 @@ struct simulation
     {}
 };
 
-// Assigning random values to each particle in a simulation.
+// Assigning random values to each particle.
 void random_init(simulation& s) 
 {
     // Initializing a random number generator.
@@ -65,6 +65,8 @@ void random_init(simulation& s)
     std::normal_distribution<double> disvel(0., 1.);
     
     // Assigning new values to each particle via the RNG.
+    // Parallelize the random particle generation.
+    #pragma omp parallel for
     for (size_t i = 0; i<s.nbpart; ++i) {
         s.mass[i] = dismass(gen);
 
@@ -135,15 +137,15 @@ void init_solar(simulation& s)
     s.vz = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 }
 
-// Meant to update the force that from applies on to
+// Updates the force that particle from applies on particle to
 void update_force(simulation& s, size_t from, size_t to) {
     double softening = .1;
     double dist_sq = std::pow(s.x[from]-s.x[to],2)
         + std::pow(s.y[from]-s.y[to],2)
         + std::pow(s.z[from]-s.z[to],2);
-    double F = G * s.mass[from]*s.mass[to]/(dist_sq+softening); //that the strength of the force
+    double F = G * s.mass[from]*s.mass[to]/(dist_sq+softening); // Force.
 
-    // Direction and normalizing the directions.
+    // Direction and normalizing it.
     double dx = s.x[from]-s.x[to];
     double dy = s.y[from]-s.y[to];
     double dz = s.z[from]-s.z[to];
@@ -183,7 +185,8 @@ void update_position(simulation& s, size_t i, double dt) {
     s.z[i] += s.vz[i]*dt;
 }
 
-// Dump the status of the state when called upon.
+// Dump the status of the state.
+// Each step = one line.
 void dump_state(simulation& s) {
     std::cout<<s.nbpart<<'\t';
     for (size_t i=0; i<s.nbpart; ++i) {
@@ -213,6 +216,22 @@ void load_from_file(simulation& s, std::string filename) {
         throw "kaboom";
 }
 
+// Updating force by comparing particle with every other particle. 
+// Will be called by each thread after OpenMP parallel pragma.
+void threaded_update_force(simulation& s, size_t beg, size_t end)
+{
+    for (size_t i = beg; i < end; i++) 
+    {
+        for (size_t j = 0; j < s.nbpart; j++) 
+        {
+            if (i != j) 
+            {
+                update_force(s, i, j);
+            }
+        }
+    }
+}
+
 // Main driver function.
 int main(int argc, char* argv[]) {
     // Check if the user has 5 arguments passed in.
@@ -226,14 +245,14 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
-    // dt = how many seconds a time step is.
-    // nbstep = number of time steps overall in the simulation.
-    // printevery = how frequent to call the dump_state function.
+    // dt = how large the time step is.
+    // nbstep = number of time steps to run.
+    // printevery = how frequent to dump the current state.
     double dt = std::atof(argv[2]); //in seconds
     size_t nbstep = std::atol(argv[3]);
     size_t printevery = std::atol(argv[4]);
   
-    // Test simulation on 3 particles.
+    // Initialize simulation with 3 particles.
     simulation s(3);
 
     //parse command line
@@ -261,45 +280,50 @@ int main(int argc, char* argv[]) {
         }    
     }
 
-  
+    // Calculating how many threads are needed.
+    // Allocating ~100 particles per thread.
+    int num_threads = s.nbpart / 100;
+    
+    // Need to call at least one thread!
+    if (num_threads == 0) {
+        num_threads = 1;
+    }
+
     for (size_t step = 0; step< nbstep; step++) 
     {
-        // Printing out dump state once every printevery states.
+        // Printing out dump state once every one in a while.
         if (step %printevery == 0)
             dump_state(s);
 
         // Resetting force before making calcs.
         reset_force(s);
 
-        // Number of threads to use.
-        int num_threads = 8;
+        // Parallelizing force updates.
+        #pragma omp parallel for num_threads(num_threads)
+        for (size_t i = 0; i < num_threads; i++) 
+        {
+            size_t beg = (s.nbpart * i) / num_threads;  // region for thread to start at.
+            size_t end;
+            if (i = num_threads - 1)
+            {
+                end = s.nbpart;   // putting all leftover particles in the last thread.
+            }
 
-        // Updating force by comparing particle with every other particle.
-        
-        // Calling OpenMP parallel for to allow for a team of threads to be created
-        // and run/synchronize execution of updating forces b/w every pair of particles.
-        #pragma openmp parallel num_threads(8)
-        for (size_t i=0; i<s.nbpart; ++i)
-            for (size_t j=0; j<s.nbpart; ++j)
-                if (i != j)
-                    // Critical region.
-                    #pragma openmp critical
-                    update_force(s, i, j);
+            else {
+                end = (i+1 * s.nbpart) / num_threads;   // ending at a certain range otherwise.
+            }
 
-        // Apply forces and update each particle's position.
-        
-        // Initialize another parallel for object to synchronize applying forces and position updates.
-        #pragma openmp parallel num_threads(8)
+            threaded_update_force(s, beg, end);
+        }
+
+        // Apply forces and update each particle's position in parallel.
+        #pragma omp parallel for num_threads(num_threads)
         for (size_t i=0; i<s.nbpart; ++i) 
         {
-            // Critical region.
-            #pragma openmp critical
             apply_force(s, i, dt);
             update_position(s, i, dt);
         }
     }
-  
-    //dump_state(s);  
 
     return 0;
 }
